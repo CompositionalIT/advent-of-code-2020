@@ -9,13 +9,10 @@ Environment.CurrentDirectory <- __SOURCE_DIRECTORY__
 [<AutoOpen>]
 module Common = 
     /// This reusable function takes in rows of text and groups up based on whenever an empty line occurs.
-    let groupByLines data =
-        ({| Groups = []; Current = [] |}, data)
-        ||> Array.fold(fun state row ->
-            match row with
-            | "" -> {| Groups = List.rev state.Current :: state.Groups; Current = [] |}
-            | row -> {| state with Current = row :: state.Current |})
-        |> fun state -> (List.rev state.Current :: state.Groups) |> List.rev
+    let groupByLines (data:string) =
+        data.Split([| Environment.NewLine + Environment.NewLine|], StringSplitOptions.RemoveEmptyEntries)
+        |> Array.map(fun group -> group.Split([|Environment.NewLine|], StringSplitOptions.RemoveEmptyEntries) |> Array.toList)
+        |> Array.toList            
 
 module DayOne =
     let values = File.ReadLines "DayOne.txt" |> Seq.map int |> Seq.toArray
@@ -23,7 +20,7 @@ module DayOne =
         items
         |> Seq.tryFind(List.sum >> (=) year)
         |> Option.map(List.reduce (*))
-
+    
     // Part one
     seq {
       for a in values do
@@ -42,19 +39,17 @@ module DayOne =
 module DayTwo =
     let data =
         File.ReadAllLines "DayTwo.txt"
-        |> Array.map(fun r ->
-            let items = r.Split ' '
+        |> Array.map(fun line ->
+            let items = line.Split ' '
             let range = items.[0].Split '-'
             int range.[0], int range.[1], items.[1].[0], items.[2])
-
-    let getLengthBy predicate = Array.filter predicate >> Array.length
 
     // Part 1
     let isValid (min, max, letter, password:string) =
         let occurrences = password |> Seq.filter ((=) letter) |> Seq.length
         occurrences >= min && occurrences <= max
 
-    data |> getLengthBy isValid
+    data |> Array.filter isValid |> Array.length 
 
     // Part 2
     let isValidAlt (first, second, letter, password:string) =
@@ -65,7 +60,7 @@ module DayTwo =
         | _ ->
             false
 
-    data |> getLengthBy isValidAlt
+    data |> Array.filter isValidAlt |> Array.length
 
 module DayThree =
     let parsed =
@@ -107,9 +102,10 @@ module DayFour =
     let (|NumberOrAf|_|) c =
         if Char.IsDigit c || [| 'a' .. 'f' |] |> Array.contains c then Some NumberOrAf
         else None
-    let (|HasHeight|) text =
-        let numbers = text |> Seq.takeWhile Char.IsDigit |> Seq.toArray |> String
-        let measure = text |> Seq.skipWhile Char.IsDigit |> Seq.toArray |> String
+    let (|HasHeight|) (text:string) =
+        let splitPosition = text |> Seq.findIndex (Char.IsDigit >> not)
+        let numbers = text.[..splitPosition - 1]
+        let measure = text.[splitPosition..]
         HasHeight (numbers, measure)
     let (|Chars|) (text:string) = Chars (Seq.toList text)
     type PassportField =
@@ -144,12 +140,11 @@ module DayFour =
             | [ "cid"; _ ] -> Ok CountryId
             | header -> Error $"Invalid {header}"
 
-    let data = File.ReadAllLines "DayFour.txt"
+    let data = File.ReadAllText "DayFour.txt"
 
     let parseFile parser lines =
         lines
-        |> List.map (fun (line:string) -> line.Split ' ' |> Array.toList)
-        |> List.concat
+        |> List.collect (fun (line:string) -> line.Split ' ' |> Array.toList)
         |> List.traverseResultA parser
 
     let validate (file:PassportField list) = 
@@ -162,21 +157,21 @@ module DayFour =
         data
         |> groupByLines
         |> List.map (parseFile parser)
+        |> List.map (Result.bind validate)
+        |> List.filter (function Ok _ -> true | Error _ -> false)
+        |> List.length
 
     // Part one
     parseFiles PassportField.ParseSimple
-    |> List.map (Result.bind validate)
-    |> List.filter (function Ok _ -> true | Error _ -> false)
-    |> List.length
 
     // Part two
     parseFiles PassportField.Parse
-    |> List.map (Result.bind validate)
-    |> List.filter (function Ok _ -> true | Error _ -> false)
-    |> List.length
 
 module DayFive =
-    let (|LowerHalf|UpperHalf|) = function 'F' | 'L' -> LowerHalf | 'B' | 'R' -> UpperHalf | x -> failwith $"Bad indicator {x}!"
+    let (|LowerHalf|UpperHalf|) = function
+        | 'F' | 'L' -> LowerHalf
+        | 'B' | 'R' -> UpperHalf
+        | x -> failwith $"Bad indicator {x}!"
     let bsp max indicators =
         ({| Min = 0; Max = max |}, indicators)
         ||> Seq.fold(fun row indicator ->
@@ -206,7 +201,7 @@ module DayFive =
     |> fun (seatA, _) -> seatA.Id + 1
 
 module DaySix =
-    let data = File.ReadAllLines "DaySix.txt"
+    let data = File.ReadAllText "DaySix.txt"
 
     let partOneData =
         data
