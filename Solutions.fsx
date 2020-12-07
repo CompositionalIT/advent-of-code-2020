@@ -1,21 +1,28 @@
 #r "nuget:FsToolkit.ErrorHandling"
+#r "nuget:FsCheck"
 
 open System
 open System.IO
 open FsToolkit.ErrorHandling
+open FsCheck
 
 Environment.CurrentDirectory <- __SOURCE_DIRECTORY__
 
 [<AutoOpen>]
 module Common = 
-    /// This reusable function takes in rows of text and groups up based on whenever an empty line occurs.
+    /// This reusable function takes a multiline string and groups up based on whenever an empty line occurs.
     let groupByLines (data:string) =
-        data.Split([| Environment.NewLine + Environment.NewLine|], StringSplitOptions.RemoveEmptyEntries)
-        |> Array.map(fun group -> group.Split([|Environment.NewLine|], StringSplitOptions.RemoveEmptyEntries) |> Array.toList)
+        data.Split([| Environment.NewLine + Environment.NewLine |], StringSplitOptions.RemoveEmptyEntries)
+        |> Array.map(fun group -> group.Split([| Environment.NewLine |], StringSplitOptions.RemoveEmptyEntries) |> Array.toList)
         |> Array.toList            
+    type Files () =
+        member _.Item
+            with get file = $"data/{file}.txt"
+    /// Provides access to data files using an indexer e.g. Files.[1] gets the path to the Day One data file.
+    let Files = Files()
 
 module DayOne =
-    let values = File.ReadLines "DayOne.txt" |> Seq.map int |> Seq.toArray
+    let values = File.ReadLines Files.[1] |> Seq.map int |> Seq.toArray
     let findAndProduct year items =
         items
         |> Seq.tryFind(List.sum >> (=) year)
@@ -38,7 +45,7 @@ module DayOne =
 
 module DayTwo =
     let data =
-        File.ReadAllLines "DayTwo.txt"
+        File.ReadAllLines Files.[2]
         |> Array.map(fun line ->
             let items = line.Split ' '
             let range = items.[0].Split '-'
@@ -63,18 +70,18 @@ module DayTwo =
     data |> Array.filter isValidAlt |> Array.length
 
 module DayThree =
-    let parsed =
-        File.ReadAllLines "DayThree.txt"
+    let data =
+        File.ReadAllLines Files.[3]
         |> Array.map(fun line -> seq {
             while true do
                 yield! line
         })
 
     let rideSlope (right, down) =
-        let rows = List.indexed [ 0 .. down .. (parsed.Length - 1) ]
+        let rows = List.indexed [ 0 .. down .. (data.Length - 1) ]
         [ for (rowNumber, row) in rows do
             let xCoordinate = rowNumber * right
-            (rowNumber, row, xCoordinate), parsed.[row] |> Seq.item xCoordinate ]
+            (rowNumber, row, xCoordinate), data.[row] |> Seq.item xCoordinate ]
         |> List.filter(snd >> (=) '#')
         |> List.length
         |> int64
@@ -92,6 +99,10 @@ module DayThree =
     |> List.reduce (*)
 
 module DayFour =
+    let data =
+        File.ReadAllText Files.[4]
+        |> groupByLines
+
     type PassportType = Normal | NorthPole
     let (|Digits|_|) length (text:string) =
         if text.Length = length && text |> Seq.forall Char.IsDigit then Some Digits
@@ -103,10 +114,13 @@ module DayFour =
         if Char.IsDigit c || [| 'a' .. 'f' |] |> Array.contains c then Some NumberOrAf
         else None
     let (|HasHeight|) (text:string) =
-        let splitPosition = text |> Seq.findIndex (Char.IsDigit >> not)
-        let numbers = text.[..splitPosition - 1]
-        let measure = text.[splitPosition..]
-        HasHeight (numbers, measure)
+        match text |> Seq.tryFindIndex (Char.IsDigit >> not) with
+        | Some splitPosition ->
+            let numbers = text.[..splitPosition - 1]
+            let measure = text.[splitPosition..]
+            HasHeight (numbers, measure)
+        | None ->
+            HasHeight (text, "")
     let (|Chars|) (text:string) = Chars (Seq.toList text)
     type PassportField =
         | BirthYear
@@ -140,8 +154,6 @@ module DayFour =
             | [ "cid"; _ ] -> Ok CountryId
             | header -> Error $"Invalid {header}"
 
-    let data = File.ReadAllText "DayFour.txt"
-
     let parseFile parser lines =
         lines
         |> List.collect (fun (line:string) -> line.Split ' ' |> Array.toList)
@@ -155,38 +167,41 @@ module DayFour =
 
     let parseFiles parser =
         data
-        |> groupByLines
-        |> List.map (parseFile parser)
-        |> List.map (Result.bind validate)
-        |> List.filter (function Ok _ -> true | Error _ -> false)
-        |> List.length
+        |> List.map (fun group ->
+            group
+            |> parseFile parser
+            |> Result.bind validate)
+
+    let countOk data = data |> List.filter Result.isOk |> List.length
 
     // Part one
-    parseFiles PassportField.ParseSimple
+    parseFiles PassportField.ParseSimple |> countOk
 
     // Part two
-    parseFiles PassportField.Parse
+    parseFiles PassportField.Parse |> countOk
 
 module DayFive =
+    let data = File.ReadAllLines Files.[5]
     let (|LowerHalf|UpperHalf|) = function
         | 'F' | 'L' -> LowerHalf
         | 'B' | 'R' -> UpperHalf
         | x -> failwith $"Bad indicator {x}!"
+
     let bsp max indicators =
-        ({| Min = 0; Max = max |}, indicators)
-        ||> Seq.fold(fun row indicator ->
-            let diff = (row.Max - row.Min) / 2 + 1
-            match indicator with
-            | LowerHalf -> {| row with Max = row.Max - diff |}
-            | UpperHalf -> {| row with Min = row.Min + diff |})
-        |> fun row -> row.Min
+        let row =
+            ({| Min = 0; Max = max |}, indicators)
+            ||> Seq.fold(fun row indicator ->
+                let diff = (row.Max - row.Min) / 2 + 1
+                match indicator with
+                | LowerHalf -> {| row with Max = row.Max - diff |}
+                | UpperHalf -> {| row with Min = row.Min + diff |})
+        row.Min
 
     let findSeat (seatData:string) =
         let row = bsp 127 seatData.[..6]
         let column = bsp 7 seatData.[7..]
         {| Id = row * 8 + column; Row = row; Column = column |}
         
-    let data = File.ReadAllLines "DayFive.txt"
     let allSeats = data |> Array.map findSeat
 
     // Part one
@@ -201,7 +216,7 @@ module DayFive =
     |> fun (seatA, _) -> seatA.Id + 1
 
 module DaySix =
-    let data = File.ReadAllText "DaySix.txt"
+    let data = File.ReadAllText Files.[6]
 
     let partOneData =
         data
@@ -224,3 +239,20 @@ module DaySix =
             |> Array.filter (snd >> (=) group.Length)
             |> Array.length)
         |> List.sum
+
+
+let versionA (text:string) = 
+    let numbers = text |> Seq.takeWhile Char.IsDigit |> Seq.toArray |> String
+    let measure = text |> Seq.skipWhile Char.IsDigit |> Seq.toArray |> String
+    numbers, measure
+
+let versionB (text:string) =
+    match text |> Seq.tryFindIndex (Char.IsDigit >> not) with
+    | Some splitPosition ->
+        let numbers = text.[..splitPosition - 1]
+        let measure = text.[splitPosition..]
+        numbers, measure
+    | None ->
+        text, ""
+
+Check.Quick (fun (NonEmptyString text) -> versionA text = versionB text)
