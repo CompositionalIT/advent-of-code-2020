@@ -239,20 +239,3 @@ module DaySix =
             |> Array.filter (snd >> (=) group.Length)
             |> Array.length)
         |> List.sum
-
-
-let versionA (text:string) = 
-    let numbers = text |> Seq.takeWhile Char.IsDigit |> Seq.toArray |> String
-    let measure = text |> Seq.skipWhile Char.IsDigit |> Seq.toArray |> String
-    numbers, measure
-
-let versionB (text:string) =
-    match text |> Seq.tryFindIndex (Char.IsDigit >> not) with
-    | Some splitPosition ->
-        let numbers = text.[..splitPosition - 1]
-        let measure = text.[splitPosition..]
-        numbers, measure
-    | None ->
-        text, ""
-
-Check.Quick (fun (NonEmptyString text) -> versionA text = versionB text)
