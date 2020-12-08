@@ -310,3 +310,43 @@ module DaySeven =
 
     countBags "shiny gold"
     |> List.sumBy snd
+
+module DayEight =
+    let (|Number|_|) (text:string) = Int32.TryParse text |> function true, n -> Some (Number n) | false, _ -> None
+    type Command =
+        | Acc of int | Jmp of int | Nop of int
+        static member Parse (text:string) =
+            match Array.toList (text.Split ' ') with
+            | [ "acc"; Number number ] -> Acc number
+            | [ "jmp"; Number number ] -> Jmp number
+            | [ "nop"; Number number ] -> Nop number
+            | x -> failwithf "Bad input %A" x
+
+    let commands = File.ReadAllLines Files.[8] |> Array.map Command.Parse |> Array.toList
+    
+    let rec run (acc, pos, executedCommands:int Set) (program:Command list) =
+        if executedCommands.Contains pos then Error acc
+        elif pos = program.Length then Ok acc
+        else
+            match program.[pos] with
+            | Acc n -> program |> run (acc + n, pos + 1, executedCommands.Add pos)
+            | Nop _ -> program |> run (acc, pos + 1, executedCommands.Add pos)
+            | Jmp n -> program |> run (acc, pos + n, executedCommands.Add pos)
+
+    // Part One
+    commands |> run (0, 0, Set.empty)
+
+    // Part Two
+    let replace = function Jmp x -> Nop x | Nop x -> Jmp x | other -> other
+    let modifyList commands index = commands |> List.map(fun (i, cmd) -> if i = index then replace cmd else cmd)
+
+    let findValidProgram commands =
+        let commands = commands |> List.indexed
+
+        commands
+        |> Seq.filter(snd >> function Jmp _ | Nop _ -> true | _ -> false)
+        |> Seq.map (fst >> modifyList commands >> run (0, 0, Set.empty))
+        |> Seq.skipWhile Result.isError
+        |> Seq.tryHead
+
+    commands |> findValidProgram
