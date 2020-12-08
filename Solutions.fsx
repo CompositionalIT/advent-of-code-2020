@@ -239,3 +239,74 @@ module DaySix =
             |> Array.filter (snd >> (=) group.Length)
             |> Array.length)
         |> List.sum
+
+module DaySeven =
+    let (|Words|) (text:string) =
+        Words(List.ofArray (text.Trim().Split([|' '|], StringSplitOptions.RemoveEmptyEntries)))
+    let (|Number|_|) =
+        Int32.TryParse >> function true, n -> Some (Number n) | false, _ -> None
+    let parse (line:string) =
+        match List.ofArray (line.Split([| "contain" |], StringSplitOptions.RemoveEmptyEntries)) with
+        | [ Words [ description; colour; "bags" ] ; children ] ->
+            let children =
+                children.Split ','
+                |> Array.map (fun parts -> parts.Trim())
+                |> Array.toList
+                |> List.choose(function
+                    | Words [ Number count; description; colour; _ ] -> Some ($"{description} {colour}", count)
+                    | "no other bags." -> None
+                    | p -> failwithf "Unknown pattern %s" p)
+                |> Map
+            $"{description} {colour}", children
+        | _ ->
+            failwith "oops"
+
+    let lookup =
+        File.ReadAllLines Files.[7]
+        |> Array.map parse
+
+    // Part One
+    let findBags bag bagData =
+        bag
+        |> List.singleton
+        |> List.unfold (fun bags ->
+            match bags with
+            | [] ->
+                None
+            | bags ->
+                let nextBags =
+                    [ for bag in bags do
+                        bagData
+                        |> Array.filter(snd >> Map.containsKey bag)
+                        |> Array.map fst
+                        |> Array.toList ]
+                    |> List.concat
+                Some (bags, nextBags)
+        )
+        |> List.concat
+        |> List.filter ((<>) bag)
+        |> List.distinct
+
+    // Part Two
+    let countBags bag =
+        let lookup = Map lookup
+        (bag, 1)
+        |> List.singleton
+        |> Seq.unfold (fun bags ->
+            match bags with
+            | [] ->
+                None
+            | bags ->
+                let output =
+                    [ for (bag, parentCount) in bags do
+                        lookup.[bag]
+                        |> Map.toList
+                        |> List.map(fun (child, childCount) ->
+                            child, childCount * parentCount) ]
+                    |> List.concat 
+                Some (output, output)
+        )
+        |> List.concat
+
+    countBags "shiny gold"
+    |> List.sumBy snd
