@@ -1,5 +1,6 @@
 #r "nuget:FsToolkit.ErrorHandling"
 #r "nuget:FsCheck"
+#r "nuget:Deedle"
 
 open System
 open System.IO
@@ -99,10 +100,6 @@ module DayThree =
     |> List.reduce (*)
 
 module DayFour =
-    let data =
-        File.ReadAllText Files.[4]
-        |> groupByLines
-
     type PassportType = Normal | NorthPole
     let (|Digits|_|) length (text:string) =
         if text.Length = length && text |> Seq.forall Char.IsDigit then Some Digits
@@ -261,55 +258,39 @@ module DaySeven =
         | _ ->
             failwith "oops"
 
-    let lookup =
-        File.ReadAllLines Files.[7]
-        |> Array.map parse
+    let lookup = File.ReadAllLines Files.[7] |> Array.map parse |> Map
 
     // Part One
-    let findBags bag bagData =
-        bag
-        |> List.singleton
-        |> List.unfold (fun bags ->
-            match bags with
-            | [] ->
-                None
-            | bags ->
-                let nextBags =
-                    [ for bag in bags do
-                        bagData
-                        |> Array.filter(snd >> Map.containsKey bag)
-                        |> Array.map fst
-                        |> Array.toList ]
-                    |> List.concat
-                Some (bags, nextBags)
-        )
-        |> List.concat
-        |> List.filter ((<>) bag)
-        |> List.distinct
+    let calculate target (lookup:Map<_,_>) = 
+        let rec walk items =
+            if items |> Map.containsKey target then true
+            elif Map.isEmpty items then false
+            else
+                items
+                |> Seq.map(fun child -> walk lookup.[child.Key])
+                |> Seq.exists ((=) true)
+        walk
+
+    lookup
+    |> Map.filter (fun _ -> calculate "shiny gold" lookup)
+    |> Map.count
 
     // Part Two
-    let countBags bag =
-        let lookup = Map lookup
-        (bag, 1)
-        |> List.singleton
-        |> Seq.unfold (fun bags ->
-            match bags with
-            | [] ->
-                None
-            | bags ->
-                let output =
-                    [ for (bag, parentCount) in bags do
-                        lookup.[bag]
-                        |> Map.toList
-                        |> List.map(fun (child, childCount) ->
-                            child, childCount * parentCount) ]
-                    |> List.concat 
-                Some (output, output)
-        )
-        |> List.concat
+    let calculate (lookup:Map<_,_>) (name, count) = 
+        let rec walk numberOfBags children =
+            if Map.isEmpty children then numberOfBags
+            else
+                let children =
+                    children
+                    |> Map.toSeq
+                    |> Seq.sumBy(fun (childName, numberOfChildren) ->
+                        walk (numberOfBags * numberOfChildren) lookup.[childName])
+                numberOfBags + children
+        walk count lookup.[name]
 
-    countBags "shiny gold"
-    |> List.sumBy snd
+    lookup.["shiny gold"]
+    |> Map.toSeq
+    |> Seq.sumBy (calculate lookup)
 
 module DayEight =
     let (|Number|_|) (text:string) = Int32.TryParse text |> function true, n -> Some (Number n) | false, _ -> None
@@ -324,14 +305,16 @@ module DayEight =
 
     let commands = File.ReadAllLines Files.[8] |> Array.map Command.Parse |> Array.toList
     
-    let rec run (acc, pos, executedCommands:int Set) (program:Command list) =
-        if executedCommands.Contains pos then Error acc
-        elif pos = program.Length then Ok acc
+    let rec run (acc, cmdIndex, executedCommands:int Set) (program:Command list) =
+        if executedCommands.Contains cmdIndex then Error acc
+        elif cmdIndex = program.Length then Ok acc
         else
-            match program.[pos] with
-            | Acc n -> program |> run (acc + n, pos + 1, executedCommands.Add pos)
-            | Nop _ -> program |> run (acc, pos + 1, executedCommands.Add pos)
-            | Jmp n -> program |> run (acc, pos + n, executedCommands.Add pos)
+            let acc, cmdIndex =
+                match program.[cmdIndex] with
+                | Acc value -> acc + value, cmdIndex + 1
+                | Nop _ -> acc, cmdIndex + 1
+                | Jmp value -> acc, cmdIndex + value
+            program |> run (acc, cmdIndex, executedCommands.Add cmdIndex)
 
     // Part One
     commands |> run (0, 0, Set.empty)
@@ -349,4 +332,41 @@ module DayEight =
         |> Seq.skipWhile Result.isError
         |> Seq.tryHead
 
-    commands |> findValidProgram
+    findValidProgram commands
+
+module DayNine =
+    let data =
+        Files.[9]
+        |> File.ReadAllLines
+        |> Array.map int64
+
+    // Part One
+    let windowSize = 25
+    let result =
+        data
+        |> Array.windowed (windowSize + 1)
+        |> Array.map(fun window ->
+            let head = window.[windowSize]
+            let tail = window.[..windowSize - 1]
+            let combinations = [
+                for a in tail do
+                for b in tail do
+                    if a + b = head then a, b
+            ]
+            match combinations with
+            | [] -> Error head
+            | combinations -> Ok (head, combinations))
+        |> Array.choose (Result.fold (fun _ -> None) (fun e -> Some e))
+        |> Array.head
+
+    // Part Two
+    let maxWindow = data.Length - 1
+    seq {
+        for windowSize in 2 .. maxWindow do
+            data
+            |> Array.windowed windowSize
+            |> Array.tryFind (fun window -> Array.sum window = result)
+    }
+    |> Seq.choose id
+    |> Seq.tryHead
+    |> Option.map(fun answer -> Array.min answer + Array.max answer)
