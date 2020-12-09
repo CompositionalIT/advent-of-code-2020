@@ -363,10 +363,11 @@ module DayNine =
     let maxWindow = data.Length - 1
     seq {
         for windowSize in 2 .. maxWindow do
-            data
-            |> Array.windowed windowSize
-            |> Array.tryFind (fun window -> Array.sum window = result)
+            yield!
+                data
+                |> Array.windowed windowSize
+                |> Array.tryFind (fun window -> Array.sum window = result)
+                |> Option.toList
     }
-    |> Seq.choose id
     |> Seq.tryHead
     |> Option.map(fun answer -> Array.min answer + Array.max answer)
