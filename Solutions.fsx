@@ -283,8 +283,8 @@ module DaySeven =
                 let children =
                     children
                     |> Map.toSeq
-                    |> Seq.sumBy(fun (childName, numberOfChildren) ->
-                        walk (numberOfBags * numberOfChildren) lookup.[childName])
+                    |> Seq.sumBy(fun (name, numberOfChildren) ->
+                        walk (numberOfBags * numberOfChildren) lookup.[name])
                 numberOfBags + children
         walk count lookup.[name]
 
