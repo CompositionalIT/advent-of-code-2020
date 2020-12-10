@@ -2,6 +2,7 @@
 #r "nuget:FsCheck"
 #r "nuget:Deedle"
 
+open System.Collections.Generic
 open System
 open System.IO
 open FsToolkit.ErrorHandling
@@ -163,7 +164,9 @@ module DayFour =
         else Error [ "Bad fields" ]
 
     let parseFiles parser =
-        data
+        Files.[4]
+        |> File.ReadAllText
+        |> groupByLines
         |> List.map (fun group ->
             group
             |> parseFile parser
@@ -261,7 +264,7 @@ module DaySeven =
     let lookup = File.ReadAllLines Files.[7] |> Array.map parse |> Map
 
     // Part One
-    let calculate target (lookup:Map<_,_>) = 
+    let calculateOne target (lookup:Map<_,_>) = 
         let rec walk items =
             if items |> Map.containsKey target then true
             elif Map.isEmpty items then false
@@ -272,11 +275,11 @@ module DaySeven =
         walk
 
     lookup
-    |> Map.filter (fun _ -> calculate "shiny gold" lookup)
+    |> Map.filter (fun _ -> calculateOne "shiny gold" lookup)
     |> Map.count
 
     // Part Two
-    let calculate (lookup:Map<_,_>) (name, count) = 
+    let calculateTwo (lookup:Map<_,_>) (name, count) = 
         let rec walk numberOfBags children =
             if Map.isEmpty children then numberOfBags
             else
@@ -290,7 +293,7 @@ module DaySeven =
 
     lookup.["shiny gold"]
     |> Map.toSeq
-    |> Seq.sumBy (calculate lookup)
+    |> Seq.sumBy (calculateTwo lookup)
 
 module DayEight =
     let (|Number|_|) (text:string) = Int32.TryParse text |> function true, n -> Some (Number n) | false, _ -> None
@@ -303,18 +306,18 @@ module DayEight =
             | [ "nop"; Number number ] -> Nop number
             | x -> failwithf "Bad input %A" x
 
-    let commands = File.ReadAllLines Files.[8] |> Array.map Command.Parse |> Array.toList
+    let commands = Files.[8] |> File.ReadAllLines |> Array.map Command.Parse |> Array.toList
     
     let rec run (acc, cmdIndex, executedCommands:int Set) (program:Command list) =
         if executedCommands.Contains cmdIndex then Error acc
         elif cmdIndex = program.Length then Ok acc
         else
-            let acc, cmdIndex =
+            let acc, cmdIndex, executedCommands =
                 match program.[cmdIndex] with
-                | Acc value -> acc + value, cmdIndex + 1
-                | Nop _ -> acc, cmdIndex + 1
-                | Jmp value -> acc, cmdIndex + value
-            program |> run (acc, cmdIndex, executedCommands.Add cmdIndex)
+                | Acc value -> acc + value, cmdIndex + 1, executedCommands.Add cmdIndex
+                | Nop _ -> acc, cmdIndex + 1, executedCommands.Add cmdIndex
+                | Jmp value -> acc, cmdIndex + value, executedCommands.Add cmdIndex
+            program |> run (acc, cmdIndex, executedCommands)
 
     // Part One
     commands |> run (0, 0, Set.empty)
@@ -346,28 +349,65 @@ module DayNine =
         data
         |> Array.windowed (windowSize + 1)
         |> Array.map(fun window ->
-            let head = window.[windowSize]
-            let tail = window.[..windowSize - 1]
+            let previousNumbers = window.[..windowSize-1]
+            let currentNumber = Array.last window
             let combinations = [
-                for a in tail do
-                for b in tail do
-                    if a + b = head then a, b
+                for a in previousNumbers do
+                for b in previousNumbers do
+                    if a + b = currentNumber then a, b
             ]
             match combinations with
-            | [] -> Error head
-            | combinations -> Ok (head, combinations))
+            | [] -> Error currentNumber
+            | combinations -> Ok (currentNumber, combinations))
         |> Array.choose (Result.fold (fun _ -> None) (fun e -> Some e))
         |> Array.head
 
     // Part Two
     let maxWindow = data.Length - 1
-    seq {
-        for windowSize in 2 .. maxWindow do
-            yield!
-                data
-                |> Array.windowed windowSize
-                |> Array.tryFind (fun window -> Array.sum window = result)
-                |> Option.toList
-    }
-    |> Seq.tryHead
-    |> Option.map(fun answer -> Array.min answer + Array.max answer)
+    let answer =
+        seq {
+            for windowSize in 2 .. maxWindow do
+                yield!
+                    data
+                    |> Array.windowed windowSize
+                    |> Array.tryFind (fun window -> Array.sum window = result)
+                    |> Option.toList
+        }
+        |> Seq.head
+    Array.min answer + Array.max answer
+
+module DayTen =
+    let numbers =
+        let data = Files.[10] |> File.ReadAllLines |> Array.map int
+        
+        data
+        |> Array.append [| 0; Array.max data + 3 |]
+        |> Array.sort
+
+    // Part One
+    numbers
+    |> Array.pairwise
+    |> Array.countBy(fun (a,b) -> b - a)
+    |> Array.map snd
+    |> Array.reduce (*)
+
+    // Part Two
+    let nextLookup =
+        numbers
+        |> Array.map(fun number ->
+            let possibilities = numbers |> Array.filter(fun r -> r > number && r <= number + 3)
+            number, possibilities)
+        |> Map
+
+    let rec calculateSize (nextLookup:Map<_,_>) (cache:IDictionary<_,_>) current =
+        match nextLookup.[current] with
+        | [||] ->
+            1UL
+        | nextNumbers ->
+            nextNumbers
+            |> Array.sumBy (fun number ->
+                if not (cache.ContainsKey number) then
+                    cache.Add (number, calculateSize nextLookup cache number)
+                cache.[number])
+    
+    calculateSize nextLookup (Dictionary()) numbers.[0]
