@@ -1,6 +1,7 @@
 #load "Bootstrapper.fsx"
 
 open System
+open System.IO
 
 let test =
     "L.LL.LL.LL
@@ -14,41 +15,60 @@ LLLLLLLLLL
 L.LLLLLL.L
 L.LLLLL.LL"
 
-let (|Occupied|Empty|Floorspace|) = function
-    | 'L' -> Empty
-    | '.' -> Floorspace
-    | '#' -> Occupied
-    | x -> failwith $"unknown space type '{x}'"
+type SeatState =
+    | Occupied
+    | Unoccupied
+    | Floorspace
+    static member Parse = function
+        | 'L' -> Unoccupied
+        | '.' -> Floorspace
+        | '#' -> Occupied
+        | x -> failwith $"unknown space type '{x}'"
+    override this.ToString() =
+        match this with
+        | Occupied -> "#" | Floorspace -> "." | Unoccupied -> "L"
+fsi.AddPrinter<SeatState> string
+fsi.AddPrinter<SeatState [][]>(fun s ->
+    [ for row in s do
+        [ for seat in row do string seat ]
+        |> String.concat "" 
+    ] |> String.concat "\n")
 
-let raw = test.Split '\n' |> Array.map Seq.toArray
-let width = raw.[0].Length
-let length = raw.Length
-let seats = Array2D.init width length (fun x y -> raw.[x].[y])
+let data = Files.[11] |> File.ReadAllLines |> Array.map (fun s -> s |> Seq.map SeatState.Parse |> Seq.toArray)
+let width = data.[0].Length
+let length = data.Length
 
 let (|AtLeast|_|) x y = if y >= x then Some AtLeast else None
-let (|Adjacent|) (seatingPlan:_ [,]) (x,y) =
+let (|Adjacent|) (seatingPlan:_ [][]) (targetSeat, targetRow) =
     let occupied =
-        [ for x in [ x - 1; x; x + 1 ] do
-          for y in [ y - 1; y; y + 1 ] do
-            x,y ]
-        |> List.filter (fun (x, _) -> x >= 0 && x < width)
-        |> List.filter (fun (_, y) -> y >= 0 && y < width)
-        |> List.sumBy(fun (x,y) ->
-            match seatingPlan.[int x, int y] with
-            | Empty | Floorspace -> 0
+        [ for rowNumber in [ targetRow - 1; targetRow; targetRow + 1 ] do
+          for seatNumber in [ targetSeat - 1; targetSeat; targetSeat + 1 ] do
+            rowNumber, seatNumber ]
+        |> List.filter ((<>) (targetRow, targetSeat))
+        |> List.filter (fun (_, seatNumber) -> seatNumber >= 0 && seatNumber < width)
+        |> List.filter (fun (rowNumber, _) -> rowNumber >= 0 && rowNumber < length)
+        |> List.sumBy(fun (rowNumber, seatNumber) ->
+            match seatingPlan.[rowNumber].[seatNumber] with
+            | Unoccupied | Floorspace -> 0
             | Occupied -> 1)
     Adjacent occupied
 
-let y = [
-    for x in [ 0 .. width - 1 ] do
-    for y in [ 0 .. length - 1 ] do
-        let newState =
-            match seats.[x, y], (x, y) with
-            | Empty, Adjacent seats 0 -> '#'
-            | Occupied, Adjacent seats (AtLeast 4) -> 'L'
-            | state, _ -> state
-        (x, y), newState
-]
+let evolve (seats:SeatState[][]) = [|
+    for rowNumber, row in Array.indexed seats do [|
+        for seatNumber, seat in Array.indexed row do
+            match seat, (seatNumber, rowNumber) with
+            | Unoccupied, Adjacent seats 0 -> Occupied
+            | Occupied, Adjacent seats (AtLeast 4) -> Unoccupied
+            | state, _ -> state |]
+    |]
 
-let yy = Map y
-Array2D.init width length (fun x y -> yy.[x, y])
+data
+|> Seq.unfold (fun state ->
+    let nextState = evolve state
+    if nextState = state then None
+    else Some (nextState, nextState))
+|> Seq.last
+|> Array.collect id
+|> Array.filter ((=) Occupied)
+|> Array.length
+
